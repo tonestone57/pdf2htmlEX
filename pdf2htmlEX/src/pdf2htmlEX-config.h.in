@@ -11,7 +11,7 @@
 
 #include <string>
 
-#define ENABLE_SVG @ENABLE_SVG@
+#define ENABLE_SVG @ENABLE_SVG_VALUE@
 
 namespace pdf2htmlEX {
 

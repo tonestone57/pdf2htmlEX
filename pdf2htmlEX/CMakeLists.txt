@@ -8,6 +8,24 @@ cmake_minimum_required(VERSION 2.6.0 FATAL_ERROR)
 
 option(ENABLE_SVG "Enable SVG support, for generating SVG background images and converting Type 3 fonts" ON)
 
+# Find required packages with minimum versions
+pkg_check_modules(FREETYPE REQUIRED freetype2>=2.10)
+message(STATUS "FREETYPE_LIBRARIES: ${FREETYPE_LIBRARIES}")
+message(STATUS "FREETYPE_INCLUDE_DIRS: ${FREETYPE_INCLUDE_DIRS}")
+find_package(Fontconfig 2.13 REQUIRED)
+find_package(JPEG 2.1 REQUIRED)
+find_package(PNG 1.6 REQUIRED)
+find_package(LibXml2 2.9 REQUIRED)
+find_package(ZLIB 1.2 REQUIRED)
+# Use pkg_check_modules for GLIB/GIO for this target, as find_package(GLIB2) might behave differently
+# than what ffw.c expects via FontForge's ffglib.h
+pkg_check_modules(GLIB_GIO REQUIRED glib-2.0>=2.64 gio-2.0>=2.64)
+message(STATUS "GLIB_GIO_INCLUDE_DIRS: ${GLIB_GIO_INCLUDE_DIRS}")
+message(STATUS "GLIB_GIO_LIBRARIES: ${GLIB_GIO_LIBRARIES}")
+pkg_check_modules(CAIRO REQUIRED cairo>=1.16)
+message(STATUS "CAIRO_INCLUDE_DIRS: ${CAIRO_INCLUDE_DIRS}")
+message(STATUS "CAIRO_LIBRARIES: ${CAIRO_LIBRARIES}")
+
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
 # Read/Set Cmake's PDF2HTMLEX_VERSION directly from the shell environment 
@@ -45,25 +63,27 @@ set(POPPLER_LIBRARIES ${POPPLER_LIBRARIES}
 
 
 if(ENABLE_SVG)
-    pkg_check_modules(CAIRO REQUIRED cairo>=1.10.0)
-    message("-- Trying to locate cairo-svg...")
-    find_path(CAIRO_SVG_INCLUDE_PATH cairo-svg.h PATHS ${CAIRO_INCLUDE_DIRS} NO_DEFAULT_PATH)
-    if(CAIRO_SVG_INCLUDE_PATH)
-        message("--    found cairo-svg...")
-        include_directories(${CAIRO_INCLUDE_DIRS})
-        if(NOT DEFINED ENV{USING_BREW})
-            link_directories(${CAIRO_LIBRARY_DIRS})
-            set(PDF2HTMLEX_LIBS ${PDF2HTMLEX_LIBS} ${CAIRO_LIBRARIES})
+    # Now using pkg_check_modules for Cairo
+    if(CAIRO_FOUND) # Check variable set by pkg_check_modules
+        message("-- Trying to locate cairo-svg...")
+        # Use CAIRO_INCLUDE_DIRS from pkg_check_modules
+        find_path(CAIRO_SVG_H_PATH cairo-svg.h PATHS ${CAIRO_INCLUDE_DIRS} NO_DEFAULT_PATH)
+        if(CAIRO_SVG_H_PATH)
+            message("--    found cairo-svg.h at: ${CAIRO_SVG_H_PATH}/cairo-svg.h")
+            # ENABLE_SVG is already ON by default if this block is entered.
+            # Include directories and libraries are handled by the main target properties.
+        else()
+            message(FATAL_ERROR "Error: no SVG support found in Cairo (cairo-svg.h not found in search paths: ${CAIRO_INCLUDE_DIRS}). Ensure Cairo development files for SVG are installed and pkg-config --cflags cairo reports the correct include paths.")
         endif()
-        set(ENABLE_SVG 1)
     else()
-        message(FATAL_ERROR "Error: no SVG support found in Cairo")
+        # This path should ideally not be taken if the main pkg_check_modules(CAIRO REQUIRED ...) succeeded.
+        message(FATAL_ERROR "Error: Cairo >= 1.16 not found by pkg_check_modules, which is required for SVG support (and general operation).")
     endif()
 
-    find_package(Freetype REQUIRED)
-    include_directories(${FREETYPE_INCLUDE_DIRS})
-    link_directories(${FREETYPE_LIBRARY_DIRS})
-#    set(PDF2HTMLEX_LIBS ${PDF2HTMLEX_LIBS} ${FREETYPE_LIBRARIES})
+    # find_package(Freetype 2.13 REQUIRED) is now at the top
+    # include_directories(${Freetype_INCLUDE_DIRS}) will be handled by target_include_directories
+    # link_directories(${FREETYPE_LIBRARY_DIRS}) is not the modern CMake way
+    # Linking ${Freetype_LIBRARIES} is handled in PDF2HTMLEX_LIBS
 endif()
 
 # SINCE we have a very intimate relationship with a particular version of 
@@ -93,19 +113,17 @@ endif()
 
 set(PDF2HTMLEX_LIBS ${PDF2HTMLEX_LIBS}
   ${POPPLER_LIBRARIES}
+  ${FREETYPE_LIBRARIES} # From pkg_check_modules - Moved for link order
   ${FONTFORGE_LIBRARIES}
-  ${LIB_INTL_LIBRARIES}
-  ${CAIRO_LIBRARIES}
-  -ljpeg
-  -lpng
-  -lfontconfig
-  -lfreetype
-  -lxml2
-  -lglib-2.0
-  -lgio-2.0
-  -lgobject-2.0
-  -lz
-  -lm
+  ${LIB_INTL_LIBRARIES} # Keep this as it's platform-dependent logic
+  ${CAIRO_LIBRARIES}    # From pkg_check_modules
+  ${JPEG_LIBRARIES}     # From find_package(JPEG)
+  ${PNG_LIBRARIES}      # From find_package(PNG)
+  ${Fontconfig_LIBRARIES} # From find_package(Fontconfig)
+  ${LibXml2_LIBRARIES}  # From find_package(LibXml2)
+  ${GLIB_GIO_LIBRARIES} # From pkg_check_modules
+  ${ZLIB_LIBRARIES}     # From find_package(ZLIB)
+  -lm # Math library often still needed explicitly
 )
 
 # debug build flags (overwrite default cmake debug flags)
@@ -129,13 +147,17 @@ set(PDF2HTMLEX_LIBS ${PDF2HTMLEX_LIBS} Threads::Threads)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Ensure GLib and GIO include paths are found for ffw.c
-pkg_check_modules(GLIB_GIO REQUIRED glib-2.0 gio-2.0)
+# find_package for GLIB2 (includes GIO, GObject) and Cairo is now at the top.
 
 if(NOT CYGWIN)
     set(CMAKE_CXX_EXTENSIONS OFF)
 endif()
 
+if(ENABLE_SVG)
+    set(ENABLE_SVG_VALUE 1)
+else()
+    set(ENABLE_SVG_VALUE 0)
+endif()
 configure_file (${CMAKE_SOURCE_DIR}/src/pdf2htmlEX-config.h.in ${CMAKE_SOURCE_DIR}/src/pdf2htmlEX-config.h)
 configure_file (${CMAKE_SOURCE_DIR}/pdf2htmlEX.1.in ${CMAKE_SOURCE_DIR}/pdf2htmlEX.1)
 
@@ -209,10 +231,17 @@ set(PDF2HTMLEX_SRC ${PDF2HTMLEX_SRC}
     )
 
 add_executable(pdf2htmlEX ${PDF2HTMLEX_SRC})
-# Add GLib and GIO include directories found by pkg_check_modules
-if(GLIB_GIO_INCLUDE_DIRS)
-  target_include_directories(pdf2htmlEX PRIVATE ${GLIB_GIO_INCLUDE_DIRS})
-endif()
+# Add include directories from find_package and explicit paths
+target_include_directories(pdf2htmlEX PRIVATE
+  ${FREETYPE_INCLUDE_DIRS} # From pkg_check_modules
+  ${Fontconfig_INCLUDE_DIRS}
+  ${JPEG_INCLUDE_DIR}
+  ${PNG_INCLUDE_DIRS}
+  ${LibXml2_INCLUDE_DIRS}
+  ${ZLIB_INCLUDE_DIRS}
+  ${GLIB_GIO_INCLUDE_DIRS} # From pkg_check_modules
+  ${CAIRO_INCLUDE_DIRS}    # From pkg_check_modules
+)
 target_link_libraries(pdf2htmlEX ${PDF2HTMLEX_LIBS})
 
 add_custom_target(pdf2htmlEX_resources ALL DEPENDS

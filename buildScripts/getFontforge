@@ -24,3 +24,9 @@ wget https://github.com/fontforge/fontforge/archive/$FONTFORGE_SRC
 tar xvf $FONTFORGE_SRC
 
 mv fontforge-$FONTFORGE_VERSION fontforge
+
+# Temporarily remove problematic translations to allow build to pass
+echo "Patching FontForge LINGUAS file to remove fr and it translations..."
+sed -i '/^fr$/d' fontforge/po/LINGUAS
+sed -i '/^it$/d' fontforge/po/LINGUAS
+echo "Done patching LINGUAS file."
