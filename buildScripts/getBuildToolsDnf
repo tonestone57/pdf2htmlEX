@@ -30,6 +30,6 @@ sudo dnf $UNATTENDED install  \
   dpkg                        \
   dpkg-dev                    \
   gettext                     \
-  java-1.8.0-openjdk-headless \
+  java-21-openjdk-headless    \
   jq
 
