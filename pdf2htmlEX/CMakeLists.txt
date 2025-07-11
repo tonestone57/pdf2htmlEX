@@ -114,7 +114,6 @@ endif()
 set(PDF2HTMLEX_LIBS ${PDF2HTMLEX_LIBS}
   ${POPPLER_LIBRARIES}
   ${FREETYPE_LIBRARIES} # From pkg_check_modules - Moved for link order
-  ${LibXml2_LIBRARIES}  # From find_package(LibXml2)
   ${FONTFORGE_LIBRARIES}
   ${LIB_INTL_LIBRARIES} # Keep this as it's platform-dependent logic
   ${CAIRO_LIBRARIES}    # From pkg_check_modules
@@ -123,8 +122,11 @@ set(PDF2HTMLEX_LIBS ${PDF2HTMLEX_LIBS}
   ${Fontconfig_LIBRARIES} # From find_package(Fontconfig)
   ${GLIB_GIO_LIBRARIES} # From pkg_check_modules
   ${ZLIB_LIBRARIES}     # From find_package(ZLIB)
+  ${LibXml2_LIBRARIES}  # From find_package(LibXml2)
   -lm # Math library often still needed explicitly
 )
+
+message(STATUS "LibXml2_LIBRARIES is: ${LibXml2_LIBRARIES}")
 
 # debug build flags (overwrite default cmake debug flags)
 set(CMAKE_C_FLAGS_DEBUG "-ggdb -pg")
