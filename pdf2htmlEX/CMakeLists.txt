@@ -244,7 +244,7 @@ target_include_directories(pdf2htmlEX PRIVATE
   ${GLIB_GIO_INCLUDE_DIRS} # From pkg_check_modules
   ${CAIRO_INCLUDE_DIRS}    # From pkg_check_modules
 )
-target_link_libraries(pdf2htmlEX ${PDF2HTMLEX_LIBS})
+target_link_libraries(pdf2htmlEX ${PDF2HTMLEX_LIBS} -lxml2)
 
 add_custom_target(pdf2htmlEX_resources ALL DEPENDS
     ${CMAKE_SOURCE_DIR}/share/base.min.css
