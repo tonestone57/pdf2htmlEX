@@ -10,6 +10,7 @@
 #define PARAM_H__
 
 #include <string>
+#include <mutex> // Added for std::mutex
 
 namespace pdf2htmlEX {
 
