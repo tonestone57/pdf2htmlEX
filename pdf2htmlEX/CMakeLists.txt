@@ -114,13 +114,13 @@ endif()
 set(PDF2HTMLEX_LIBS ${PDF2HTMLEX_LIBS}
   ${POPPLER_LIBRARIES}
   ${FREETYPE_LIBRARIES} # From pkg_check_modules - Moved for link order
+  ${LibXml2_LIBRARIES}  # From find_package(LibXml2)
   ${FONTFORGE_LIBRARIES}
   ${LIB_INTL_LIBRARIES} # Keep this as it's platform-dependent logic
   ${CAIRO_LIBRARIES}    # From pkg_check_modules
   ${JPEG_LIBRARIES}     # From find_package(JPEG)
   ${PNG_LIBRARIES}      # From find_package(PNG)
   ${Fontconfig_LIBRARIES} # From find_package(Fontconfig)
-  ${LibXml2_LIBRARIES}  # From find_package(LibXml2)
   ${GLIB_GIO_LIBRARIES} # From pkg_check_modules
   ${ZLIB_LIBRARIES}     # From find_package(ZLIB)
   -lm # Math library often still needed explicitly
