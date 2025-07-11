@@ -125,9 +125,13 @@ set(CMAKE_THREAD_PREFER_PTHREAD ON)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 set(PDF2HTMLEX_LIBS ${PDF2HTMLEX_LIBS} Threads::Threads)
-# Poppler-23.12.0 requires CXX17
-set(CMAKE_CXX_STANDARD 17)
+# Poppler-24.02.0 requires CXX20
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Ensure GLib and GIO include paths are found for ffw.c
+pkg_check_modules(GLIB_GIO REQUIRED glib-2.0 gio-2.0)
+
 if(NOT CYGWIN)
     set(CMAKE_CXX_EXTENSIONS OFF)
 endif()
@@ -205,6 +209,10 @@ set(PDF2HTMLEX_SRC ${PDF2HTMLEX_SRC}
     )
 
 add_executable(pdf2htmlEX ${PDF2HTMLEX_SRC})
+# Add GLib and GIO include directories found by pkg_check_modules
+if(GLIB_GIO_INCLUDE_DIRS)
+  target_include_directories(pdf2htmlEX PRIVATE ${GLIB_GIO_INCLUDE_DIRS})
+endif()
 target_link_libraries(pdf2htmlEX ${PDF2HTMLEX_LIBS})
 
 add_custom_target(pdf2htmlEX_resources ALL DEPENDS
