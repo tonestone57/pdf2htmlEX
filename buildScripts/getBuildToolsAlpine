@@ -26,6 +26,6 @@ sudo apk add   \
   gcc          \
   g++          \
   gettext      \
-  openjdk8     \
+  openjdk21    \
   jq
 
