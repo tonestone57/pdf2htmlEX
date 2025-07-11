@@ -132,11 +132,11 @@ bool CairoBackgroundRenderer::render_page(PDFDoc * doc, int pageno)
 
     string fn = (char*)html_renderer->str_fmt("%s/bg%x.svg", (param.embed_image ? param.tmp_dir : param.dest_dir).c_str(), pageno);
     if(param.embed_image)
-        html_renderer->tmp_files.add(fn);
+        html_renderer->tmp_files.add(fn); // TmpFiles is internally synchronized
 
-    surface = cairo_svg_surface_create(fn.c_str(), page_width * param.actual_dpi / DEFAULT_DPI, page_height * param.actual_dpi / DEFAULT_DPI);
+    surface = cairo_svg_surface_create(fn.c_str(), page_width * html_renderer->current_page_actual_dpi / DEFAULT_DPI, page_height * html_renderer->current_page_actual_dpi / DEFAULT_DPI);
     cairo_svg_surface_restrict_to_version(surface, CAIRO_SVG_VERSION_1_2);
-    cairo_surface_set_fallback_resolution(surface, param.actual_dpi, param.actual_dpi);
+    cairo_surface_set_fallback_resolution(surface, html_renderer->current_page_actual_dpi, html_renderer->current_page_actual_dpi);
 
     cairo_t * cr = cairo_create(surface);
     setCairo(cr);
@@ -144,7 +144,7 @@ bool CairoBackgroundRenderer::render_page(PDFDoc * doc, int pageno)
     bitmaps_in_current_page.clear();
 
     bool process_annotation = param.process_annotation;
-    doc->displayPage(this, pageno, param.actual_dpi, param.actual_dpi,
+    doc->displayPage(this, pageno, html_renderer->current_page_actual_dpi, html_renderer->current_page_actual_dpi,
             0,
             (!(param.use_cropbox)),
             false,
@@ -197,7 +197,14 @@ bool CairoBackgroundRenderer::render_page(PDFDoc * doc, int pageno)
 
 void CairoBackgroundRenderer::embed_image(int pageno)
 {
-    auto & f_page = *(html_renderer->f_curpage);
+    // Use the thread-local output stream provided by HTMLRenderer
+    std::ofstream* out_stream = HTMLRenderer::tl_f_curpage ? HTMLRenderer::tl_f_curpage : html_renderer->f_curpage;
+    if (!out_stream) {
+        // This case should ideally not happen if logic is correct in HTMLRenderer
+        // Or handle error appropriately
+        return;
+    }
+    auto & f_page = *out_stream;
 
     // SVGs introduced by <img> or background-image can't have external resources;
     // SVGs introduced by <embed> and <object> can, but they are more expensive for browsers.

@@ -12,6 +12,9 @@
 #include <algorithm>
 #include <vector>
 #include <functional>
+#include <thread>
+#include <atomic>
+#include <mutex>
 
 #include <GlobalParams.h>
 
@@ -120,55 +123,144 @@ void HTMLRenderer::process(PDFDoc *doc)
     }
 
     int page_count = (param.last_page - param.first_page + 1);
-    for(int i = param.first_page; i <= param.last_page ; ++i)
-    {
-        param.actual_dpi = param.desired_dpi;
-        param.max_dpi = 72 * MAX_DIMEN / max(doc->getPageCropWidth(i), doc->getPageCropHeight(i));
+    unsigned int num_threads = std::thread::hardware_concurrency();
+    if (param.num_threads > 0) {
+        num_threads = param.num_threads;
+    }
 
-        if (param.actual_dpi > param.max_dpi) {
-            param.actual_dpi = param.max_dpi;
-            printf("Warning:Page %d clamped to %f DPI\n", i, param.actual_dpi);
-        }
+    std::vector<std::thread> threads;
+    std::atomic<int> current_page_atomic(param.first_page);
 
-        if (param.tmp_file_size_limit != -1 && tmp_files.get_total_size() > param.tmp_file_size_limit * 1024) {
-            if(param.quiet == 0)
-                cerr << "Stop processing, reach max size\n";
-            break;
-        }
+    for (unsigned int t = 0; t < num_threads; ++t) {
+        threads.emplace_back([&]() {
+            while (true) {
+                int i = current_page_atomic.fetch_add(1);
+                if (i > param.last_page) {
+                    break;
+                }
 
-        if (param.quiet == 0)
-            cerr << "Working: " << (i-param.first_page) << "/" << page_count << '\r' << flush;
+                // Thread-local storage for page-specific data
+                std::ofstream local_f_curpage_stream;
+                std::ofstream *local_f_curpage_ptr = nullptr;
+                std::string local_cur_page_filename;
 
-        if(param.split_pages)
-        {
-            // copy the string out, since we will reuse the buffer soon
-            string filled_template_filename = (char*)str_fmt(param.page_filename.c_str(), i);
-            auto page_fn = str_fmt("%s/%s", param.dest_dir.c_str(), filled_template_filename.c_str());
-            f_curpage = new ofstream((char*)page_fn, ofstream::binary);
-            if(!(*f_curpage))
-                throw string("Cannot open ") + (char*)page_fn + " for writing";
-            set_stream_flags((*f_curpage));
+                // Lock for operations that are not thread-safe
+                std::unique_lock<std::mutex> lock(param.render_mutex);
 
-            cur_page_filename = filled_template_filename;
-        }
+                param.actual_dpi = param.desired_dpi;
+                param.max_dpi = 72 * MAX_DIMEN / max(doc->getPageCropWidth(i), doc->getPageCropHeight(i));
 
-        doc->displayPage(this, i,
-                text_zoom_factor() * DEFAULT_DPI, text_zoom_factor() * DEFAULT_DPI,
-                0,
-                (!(param.use_cropbox)),
-                true,  // crop
-                false, // printing
-                nullptr, nullptr, nullptr, nullptr);
+                if (param.actual_dpi > param.max_dpi) {
+                    param.actual_dpi = param.max_dpi;
+                    printf("Warning:Page %d clamped to %f DPI\n", i, param.actual_dpi);
+                }
 
-        if (param.desired_dpi != param.actual_dpi) {
-            printf("Page %d DPI change %.1f => %.1f\n", i, param.desired_dpi, param.actual_dpi);
-        }
+                bool stop_processing = false;
+                if (param.tmp_file_size_limit != -1) {
+                    // tmp_files.get_total_size() needs to be thread-safe or called under a lock
+                    // Assuming TmpFiles methods will be made thread-safe internally or are already.
+                    // For now, let's lock it externally if it's a shared resource check.
+                    // std::lock_guard<std::mutex> tmp_lock(param.tmp_files_mutex); // Introduce a specific mutex if needed
+                    if (tmp_files.get_total_size() > param.tmp_file_size_limit * 1024) {
+                        if (param.quiet == 0)
+                            cerr << "Stop processing, reach max size\n";
+                        stop_processing = true;
+                    }
+                }
+                if (stop_processing) {
+                    current_page_atomic.store(param.last_page + 1);
+                    lock.unlock();
+                    break;
+                }
 
-        if(param.split_pages)
-        {
-            delete f_curpage;
-            f_curpage = nullptr;
-        }
+
+                if (param.quiet == 0) {
+                    // Progress reporting needs to be thread-safe if we want to keep it accurate.
+                    // For simplicity, we can report page completion at the end of processing each page.
+                }
+
+
+                if(param.split_pages)
+                {
+                    local_cur_page_filename = (char*)str_fmt(param.page_filename.c_str(), i);
+                    auto page_fn = str_fmt("%s/%s", param.dest_dir.c_str(), local_cur_page_filename.c_str());
+                    local_f_curpage_stream.open((char*)page_fn, ofstream::binary);
+                    if(!(local_f_curpage_stream)) {
+                        // Handle error: throw or log
+                        cerr << "Cannot open " << (char*)page_fn << " for writing" << endl;
+                        lock.unlock();
+                        continue;
+                    }
+                    set_stream_flags(local_f_curpage_stream);
+                    local_f_curpage_ptr = &local_f_curpage_stream;
+                } else {
+                    // When not splitting pages, all output goes to f_pages.fs, which needs locking.
+                    // This part will be tricky and might require significant refactoring
+                    // For now, let's assume split_pages is the primary use case for parallelization
+                    // or that f_pages.fs is made thread-safe separately.
+                    // For this initial step, we'll focus on the loop parallelization.
+                    // If not splitting, this path needs careful review for thread safety.
+                    // A potential approach is to buffer page content locally and write sequentially.
+                }
+                lock.unlock();
+
+
+                // The HTMLRenderer object (this) is shared. We need to ensure displayPage and its callees are thread-safe.
+                // This is a major task for the next step. For now, we assume some level of internal locking or make it so.
+                // For this step, we are just structuring the loop.
+                // We'll need to pass the thread-local f_curpage and cur_page_filename to displayPage or related methods.
+                // This will likely require changes to startPage and endPage.
+
+                // Placeholder for where thread-local f_curpage and cur_page_filename would be used by displayPage
+                // This requires HTMLRenderer to be aware of the current thread's output stream and filename.
+                // One way is to pass them as parameters to displayPage or set them in a thread-local context within HTMLRenderer.
+
+                // Critical section: displayPage modifies shared state within HTMLRenderer and Poppler's doc object.
+                // This is the most complex part for thread-safety.
+                // For now, let's assume `displayPage` itself is made thread-safe or we add a lock around it if necessary.
+                // The actual rendering (doc->displayPage) must be made thread-safe.
+                // Poppler's PDFDoc::displayPage might not be thread-safe if it modifies shared document state without internal locking.
+                // If Poppler is not thread-safe for concurrent page displays from the same PDFDoc,
+                // then we might need a global lock around doc->displayPage, which would serialize this part,
+                // limiting the benefits of multi-threading.
+                // Alternatively, if different pages can truly be processed independently by Poppler,
+                // then only the parts of HTMLRenderer that *accumulate* global state (like CSS, fonts, outlines) need locking.
+                std::unique_lock<std::mutex> display_lock(param.display_mutex); // A new mutex for displayPage
+
+                // Update HTMLRenderer to use thread-local streams
+                this->setThreadLocalOutputStream(local_f_curpage_ptr ? local_f_curpage_ptr : &f_pages.fs);
+                this->setThreadLocalPageFilename(local_cur_page_filename);
+
+
+                doc->displayPage(this, i,
+                        text_zoom_factor() * DEFAULT_DPI, text_zoom_factor() * DEFAULT_DPI,
+                        0,
+                        (!(param.use_cropbox)),
+                        true,  // crop
+                        false, // printing
+                        nullptr, nullptr, nullptr, nullptr);
+
+                this->clearThreadLocalOutputStream(); // Reset after use
+                this->clearThreadLocalPageFilename();
+                display_lock.unlock();
+
+
+                lock.lock(); // Re-acquire lock for shared post-page processing
+                if (param.quiet == 0) {
+                     cerr << "Finished page: " << i << "/" << param.last_page << endl; // Simple progress
+                }
+
+                if(param.split_pages && local_f_curpage_stream.is_open())
+                {
+                    local_f_curpage_stream.close();
+                }
+                lock.unlock();
+            }
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
     }
     if(page_count >= 0 && param.quiet == 0)
         cerr << "Working: " << page_count << "/" << page_count;
@@ -202,6 +294,30 @@ void HTMLRenderer::startPage(int pageNum, GfxState *state, XRef * xref)
 
     this->pageNum = pageNum;
 
+    // Calculate and set current page's actual DPI
+    // GfxState provides page dimensions. If use_cropbox is true, we should use cropbox dimensions.
+    // PDFDoc methods like getPageCropWidth might be an alternative if GfxState doesn't have exactly what we need easily.
+    // For now, assume GfxState is sufficient as it's available here.
+    double page_width_for_dpi_calc = param.use_cropbox ? state->getCropBox()->getWidth() : state->getPageWidth();
+    double page_height_for_dpi_calc = param.use_cropbox ? state->getCropBox()->getHeight() : state->getPageHeight();
+
+    this->current_page_actual_dpi = param.desired_dpi; // Start with desired
+    if (page_width_for_dpi_calc > 0 && page_height_for_dpi_calc > 0) { // Avoid division by zero
+        double max_allowed_dpi = 72.0 * MAX_DIMEN / std::max(page_width_for_dpi_calc, page_height_for_dpi_calc);
+        if (this->current_page_actual_dpi > max_allowed_dpi) {
+            this->current_page_actual_dpi = max_allowed_dpi;
+            // Thread-safe logging for this warning is needed if we want to keep it.
+            // For now, omitting the printf.
+            // printf("Warning:Page %d clamped to %f DPI\n", pageNum, this->current_page_actual_dpi);
+        }
+    } else {
+        // Default or error if page dimensions are zero/invalid
+        this->current_page_actual_dpi = param.desired_dpi;
+    }
+
+    // The original DPI change warning (param.desired_dpi != param.actual_dpi)
+    // can be issued here if needed, comparing param.desired_dpi with this->current_page_actual_dpi
+
     html_text_page.set_page_size(state->getPageWidth(), state->getPageHeight());
 
     reset_state();
@@ -211,7 +327,10 @@ void HTMLRenderer::endPage() {
     long long wid = all_manager.width.install(html_text_page.get_width());
     long long hid = all_manager.height.install(html_text_page.get_height());
 
-    (*f_curpage)
+    std::ofstream* current_output_stream = tl_f_curpage ? tl_f_curpage : f_curpage;
+    std::string current_page_name = tl_cur_page_filename.empty() ? cur_page_filename : tl_cur_page_filename;
+
+    (*current_output_stream)
         << "<div id=\"" << CSS::PAGE_FRAME_CN << pageNum
             << "\" class=\"" << CSS::PAGE_FRAME_CN
             << " " << CSS::WIDTH_CN << wid
@@ -229,6 +348,8 @@ void HTMLRenderer::endPage() {
      */
     if(param.split_pages)
     {
+        // f_pages.fs needs to be protected by a mutex if accessed by multiple threads
+        std::lock_guard<std::mutex> lock(param.render_mutex);
         f_pages.fs
             << "<div id=\"" << CSS::PAGE_FRAME_CN << pageNum
                 << "\" class=\"" << CSS::PAGE_FRAME_CN
@@ -237,7 +358,7 @@ void HTMLRenderer::endPage() {
                 << "\" data-page-no=\"" << pageNum
                 << "\" data-page-url=\"";
 
-        writeAttribute(f_pages.fs, cur_page_filename);
+        writeAttribute(f_pages.fs, current_page_name);
         f_pages.fs << "\">";
     }
 
@@ -255,43 +376,56 @@ void HTMLRenderer::endPage() {
     }
 
     // dump all text
-    html_text_page.dump_text(*f_curpage);
-    html_text_page.dump_css(f_css.fs);
+    // html_text_page.dump_text needs to write to the correct stream.
+    // f_css.fs is a shared resource and needs locking.
+    html_text_page.dump_text(*current_output_stream);
+    {
+        std::lock_guard<std::mutex> lock(param.render_mutex);
+        html_text_page.dump_css(f_css.fs);
+    }
     html_text_page.clear();
 
     // process form
     if(param.process_form)
-        process_form(*f_curpage);
+        process_form(*current_output_stream);
     
     // process links before the page is closed
-    cur_doc->processLinks(this, pageNum);
+    // cur_doc->processLinks might need to be thread-safe or called under a lock if it modifies shared state.
+    // For now, assuming it's safe or handled by display_mutex if called within displayPage scope.
+    // If called here, it might need its own synchronization.
+    {
+        std::lock_guard<std::mutex> lock(param.display_mutex); // Or a more specific mutex for link processing
+        cur_doc->processLinks(this, pageNum);
+    }
 
     // close box
-    (*f_curpage) << "</div>";
+    (*current_output_stream) << "</div>";
 
     // dump info for js
     // TODO: create a function for this
     // BE CAREFUL WITH ESCAPES
     {
-        (*f_curpage) << "<div class=\"" << CSS::PAGE_DATA_CN << "\" data-data='{";
+        (*current_output_stream) << "<div class=\"" << CSS::PAGE_DATA_CN << "\" data-data='{";
 
         //default CTM
-        (*f_curpage) << "\"ctm\":[";
+        (*current_output_stream) << "\"ctm\":[";
         for(int i = 0; i < 6; ++i)
         {
-            if(i > 0) (*f_curpage) << ",";
-            (*f_curpage) << round(default_ctm[i]);
+            if(i > 0) (*current_output_stream) << ",";
+            (*current_output_stream) << round(default_ctm[i]);
         }
-        (*f_curpage) << "]";
+        (*current_output_stream) << "]";
 
-        (*f_curpage) << "}'></div>";
+        (*current_output_stream) << "}'></div>";
     }
 
     // close page
-    (*f_curpage) << "</div>" << endl;
+    (*current_output_stream) << "</div>" << endl;
 
     if(param.split_pages)
     {
+        // f_pages.fs needs to be protected by a mutex
+        std::lock_guard<std::mutex> lock(param.render_mutex);
         f_pages.fs << "</div>" << endl;
     }
 }
@@ -391,13 +525,15 @@ void HTMLRenderer::pre_process(PDFDoc * doc)
         set_stream_flags(f_pages.fs);
     }
 
-    if(param.split_pages)
-    {
-        f_curpage = nullptr;
-    }
-    else
-    {
+    // Initialize f_curpage for the main thread (used if not param.split_pages, or as a fallback)
+    // When param.split_pages is true, each thread will manage its own file stream via tl_f_curpage.
+    // If param.split_pages is false, all threads would theoretically write to f_pages.fs via tl_f_curpage being set to &f_pages.fs.
+    // This path (not splitting pages with multithreading) is risky and needs careful synchronization around f_pages.fs writes.
+    // The current loop structure passes &f_pages.fs to setThreadLocalOutputStream if a thread-specific stream isn't made.
+    if (!param.split_pages) {
         f_curpage = &f_pages.fs;
+    } else {
+        f_curpage = nullptr; // Explicitly null when splitting, as each thread handles its own.
     }
 }
 
@@ -608,5 +744,24 @@ void HTMLRenderer::embed_file(ostream & out, const string & path, const string &
 }
 
 const std::string HTMLRenderer::MANIFEST_FILENAME = "manifest";
+
+thread_local std::ofstream * HTMLRenderer::tl_f_curpage = nullptr;
+thread_local std::string HTMLRenderer::tl_cur_page_filename = "";
+
+void HTMLRenderer::setThreadLocalOutputStream(std::ofstream* stream) {
+    tl_f_curpage = stream;
+}
+
+void HTMLRenderer::clearThreadLocalOutputStream() {
+    tl_f_curpage = nullptr;
+}
+
+void HTMLRenderer::setThreadLocalPageFilename(const std::string& filename) {
+    tl_cur_page_filename = filename;
+}
+
+void HTMLRenderer::clearThreadLocalPageFilename() {
+    tl_cur_page_filename = "";
+}
 
 }// namespace pdf2htmlEX

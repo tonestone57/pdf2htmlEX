@@ -106,7 +106,7 @@ bool SplashBackgroundRenderer::render_page(PDFDoc * doc, int pageno)
     drawn_char_count = 0;
     bool process_annotation = param.process_annotation;
 
-    doc->displayPage(this, pageno, param.actual_dpi, param.actual_dpi,
+    doc->displayPage(this, pageno, html_renderer->current_page_actual_dpi, html_renderer->current_page_actual_dpi,
             0, 
             (!(param.use_cropbox)),
             false, false,
@@ -133,15 +133,22 @@ void SplashBackgroundRenderer::embed_image(int pageno)
             else
                 throw string("Image format not supported: ") + format;
 
-            SplashError e = bitmap->writeImgFile(splashImageFileFormat, (const char *)fn, param.actual_dpi, param.actual_dpi);
+            SplashError e = bitmap->writeImgFile(splashImageFileFormat, (const char *)fn, html_renderer->current_page_actual_dpi, html_renderer->current_page_actual_dpi);
             if (e != splashOk)
                 throw string("Cannot write background image. SplashErrorCode: ") + std::to_string(e);
         }
 
-        double h_scale = html_renderer->text_zoom_factor() * DEFAULT_DPI / param.actual_dpi;
-        double v_scale = html_renderer->text_zoom_factor() * DEFAULT_DPI / param.actual_dpi;
+        double h_scale = html_renderer->text_zoom_factor() * DEFAULT_DPI / html_renderer->current_page_actual_dpi;
+        double v_scale = html_renderer->text_zoom_factor() * DEFAULT_DPI / html_renderer->current_page_actual_dpi;
 
-        auto & f_page = *(html_renderer->f_curpage);
+        // Use the thread-local output stream provided by HTMLRenderer
+        std::ofstream* out_stream = HTMLRenderer::tl_f_curpage ? HTMLRenderer::tl_f_curpage : html_renderer->f_curpage;
+        if (!out_stream) {
+            // This case should ideally not happen if logic is correct in HTMLRenderer
+            // Or handle error appropriately
+            return;
+        }
+        auto & f_page = *out_stream;
         auto & all_manager = html_renderer->all_manager;
         
         f_page << "<img class=\"" << CSS::BACKGROUND_IMAGE_CN 

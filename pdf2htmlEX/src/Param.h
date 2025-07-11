@@ -47,6 +47,11 @@ struct Param
     int fallback;
     int tmp_file_size_limit;
 
+    // multi-threading
+    unsigned int num_threads; // Number of threads to use
+    std::mutex render_mutex;
+    std::mutex display_mutex;
+
     // fonts
     int embed_external_font;
     std::string font_format;

@@ -264,6 +264,7 @@ protected:
     int pageNum;
 
     double default_ctm[6];
+    double current_page_actual_dpi;
 
     /*
      * The content of each page is first scaled with factor1 (>=1), then scale back with factor2(<=1)
@@ -374,6 +375,10 @@ protected:
     } f_outline, f_pages, f_css;
     std::ofstream * f_curpage;
     std::string cur_page_filename;
+
+    // Thread-local output management
+    static thread_local std::ofstream * tl_f_curpage;
+    static thread_local std::string tl_cur_page_filename;
 
     static const std::string MANIFEST_FILENAME;
 

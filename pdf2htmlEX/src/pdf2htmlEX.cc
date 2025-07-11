@@ -166,6 +166,9 @@ void parse_options (int argc, char **argv)
         .add("fallback", &param.fallback, 0, "output in fallback mode")
         .add("tmp-file-size-limit", &param.tmp_file_size_limit, -1, "Maximum size (in KB) used by temporary files, -1 for no limit")
 
+        // multi-threading
+        .add("num-threads", &param.num_threads, 0, "number of threads to use for rendering (0 for auto)")
+
         // fonts
         .add("embed-external-font", &param.embed_external_font, 1, "embed local match for external fonts")
         .add("font-format", &param.font_format, "woff", "suffix for embedded font files (ttf,otf,woff,svg)")

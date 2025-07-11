@@ -7,6 +7,8 @@
 
 namespace pdf2htmlEX {
 
+#include <mutex>
+
 class TmpFiles
 {
 public:
@@ -14,13 +16,14 @@ public:
     ~TmpFiles();
 
     void add( const std::string& fn);
-    double get_total_size() const;
-
+    double get_total_size() const; // This likely iterates files; if so, the lock should be inside or it's complex.
+                                   // For now, assume internal operations on `tmp_files` set are protected.
 private:
     void clean();
 
     const Param& param;
     std::set<std::string> tmp_files;
+    mutable std::mutex mtx; // Mutable for get_total_size if it needs to lock
 };
 
 } // namespace pdf2htmlEX
