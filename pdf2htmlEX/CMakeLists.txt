@@ -115,6 +115,7 @@ set(PDF2HTMLEX_LIBS ${PDF2HTMLEX_LIBS}
   ${POPPLER_LIBRARIES}
   ${FREETYPE_LIBRARIES} # From pkg_check_modules - Moved for link order
   ${FONTFORGE_LIBRARIES}
+  ${LibXml2_LIBRARIES}  # From find_package(LibXml2)
   ${LIB_INTL_LIBRARIES} # Keep this as it's platform-dependent logic
   ${CAIRO_LIBRARIES}    # From pkg_check_modules
   ${JPEG_LIBRARIES}     # From find_package(JPEG)
@@ -122,7 +123,6 @@ set(PDF2HTMLEX_LIBS ${PDF2HTMLEX_LIBS}
   ${Fontconfig_LIBRARIES} # From find_package(Fontconfig)
   ${GLIB_GIO_LIBRARIES} # From pkg_check_modules
   ${ZLIB_LIBRARIES}     # From find_package(ZLIB)
-  ${LibXml2_LIBRARIES}  # From find_package(LibXml2)
   -lm # Math library often still needed explicitly
 )
 
