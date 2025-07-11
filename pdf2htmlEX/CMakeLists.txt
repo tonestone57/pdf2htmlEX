@@ -1,12 +1,14 @@
-# leave this above project(pdf2htmlEX)
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
+project(pdf2htmlEX)
+include(CTest) # Moved CTest include earlier
+
 # set default build type to Release
 set(CMAKE_BUILD_TYPE Release CACHE STRING "Build configuration (Debug, Release, RelWithDebInfo, MinSizeRel)")
-
-project(pdf2htmlEX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-cmake_minimum_required(VERSION 2.6.0 FATAL_ERROR)
 
 option(ENABLE_SVG "Enable SVG support, for generating SVG background images and converting Type 3 fonts" ON)
+
+find_package(PkgConfig REQUIRED)
 
 # Find required packages with minimum versions
 pkg_check_modules(FREETYPE REQUIRED freetype2>=2.10)
@@ -38,8 +40,6 @@ add_custom_target(dist
     COMMAND git archive --prefix=${ARCHIVE_NAME}/ HEAD
         | bzip2 > ${CMAKE_BINARY_DIR}/${ARCHIVE_NAME}.tar.bz2
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-find_package(PkgConfig)
 
 
 # SINCE we have a very intimate relationship with a particular version of 
@@ -299,6 +299,6 @@ file(MAKE_DIRECTORY ${PDF2HTMLEX_PNGDIR})
 file(MAKE_DIRECTORY ${PDF2HTMLEX_OUTDIR})
 configure_file(${CMAKE_SOURCE_DIR}/test/test.py.in ${CMAKE_SOURCE_DIR}/test/test.py)
 
-include(CTest)
+# include(CTest) # Moved to top
 add_test(test_basic   python ${CMAKE_SOURCE_DIR}/test/test_output.py)
 add_test(test_browser python ${CMAKE_SOURCE_DIR}/test/test_local_browser.py)
