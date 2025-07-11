@@ -296,10 +296,21 @@ void HTMLRenderer::startPage(int pageNum, GfxState *state, XRef * xref)
 
     // Calculate and set current page's actual DPI
     // GfxState provides page dimensions. If use_cropbox is true, we should use cropbox dimensions.
-    // PDFDoc methods like getPageCropWidth might be an alternative if GfxState doesn't have exactly what we need easily.
-    // For now, assume GfxState is sufficient as it's available here.
-    double page_width_for_dpi_calc = param.use_cropbox ? state->getCropBox()->getWidth() : state->getPageWidth();
-    double page_height_for_dpi_calc = param.use_cropbox ? state->getCropBox()->getHeight() : state->getPageHeight();
+    double page_width_for_dpi_calc, page_height_for_dpi_calc;
+    if (param.use_cropbox) {
+        page_width_for_dpi_calc = cur_doc->getPageCropWidth(pageNum);
+        page_height_for_dpi_calc = cur_doc->getPageCropHeight(pageNum);
+    } else {
+        page_width_for_dpi_calc = cur_doc->getPageMediaWidth(pageNum);
+        page_height_for_dpi_calc = cur_doc->getPageMediaHeight(pageNum);
+    }
+
+    // Poppler's getPageRotate gives rotation in degrees (0, 90, 180, 270)
+    // If page is rotated 90 or 270 degrees, width and height are swapped for DPI calculation logic.
+    int rotation = cur_doc->getPageRotate(pageNum);
+    if (rotation == 90 || rotation == 270) {
+        std::swap(page_width_for_dpi_calc, page_height_for_dpi_calc);
+    }
 
     this->current_page_actual_dpi = param.desired_dpi; // Start with desired
     if (page_width_for_dpi_calc > 0 && page_height_for_dpi_calc > 0) { // Avoid division by zero

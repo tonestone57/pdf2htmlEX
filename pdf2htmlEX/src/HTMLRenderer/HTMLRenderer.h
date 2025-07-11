@@ -380,6 +380,12 @@ protected:
     static thread_local std::ofstream * tl_f_curpage;
     static thread_local std::string tl_cur_page_filename;
 
+public: // Added public accessor for thread local setters/clearers
+    void setThreadLocalOutputStream(std::ofstream* stream);
+    void clearThreadLocalOutputStream();
+    void setThreadLocalPageFilename(const std::string& filename);
+    void clearThreadLocalPageFilename();
+
     static const std::string MANIFEST_FILENAME;
 
     CoveredTextDetector covered_text_detector;
